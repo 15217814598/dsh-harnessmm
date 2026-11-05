@@ -1,0 +1,19 @@
+dsh-harnessmm
+Copyright 2026 dsh-plugin
+
+This product ports the runtime mechanism of HarnessMM:
+  HarnessMM: Recursive Self-Improvement for Harness Token Efficiency
+  Yuhua Jiang, Chang Xu, Feifei Gao, Li Zhao
+  https://arxiv.org/abs/2610.32813
+  https://github.com/YuhuaJiang2002/HarnessMM  (Apache-2.0)
+
+and follows the pi extension that ports it:
+  pi-harnessmm
+  https://github.com/jlon/pi-harnessmm  (Apache-2.0)
+
+The authoring contract, bank parsing rules, guard semantics, admission
+arithmetic and the certified-native-substitution/v1 certificate schema are
+derived from those projects and remain under the Apache-2.0 license. The dsh
+adaptation (native shell dispatch through a registered dsh tool, session-log
+authoring receipts, ledger routes and the terminal tool surface) is original
+work in this repository.

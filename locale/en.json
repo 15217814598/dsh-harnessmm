@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "HarnessMM",
+    "description": "Guarded decision reuse for shell work: executes a literal action bank's successors without another model call and certifies every bypassed reasoning callback."
+  },
+  "command": {
+    "harnessmm": "Report HarnessMM guarded decision reuse for this session"
+  },
+  "tool": {
+    "terminal": "Run one shell command and its authored guarded successors"
+  }
+}

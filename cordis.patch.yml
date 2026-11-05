@@ -1,0 +1,40 @@
+# dsh-harnessmm bundle patch — HarnessMM guarded decision reuse for dsh.
+#
+# The plugin mounts:
+#   - a `terminal` tool: one root command plus the guarded successors of the
+#     literal action bank authored for it (<CHISEL_PLAN> text or the
+#     `chisel_plan` argument), each executed through the configured native shell
+#     tool and each certified as one bypassed reasoning callback;
+#   - a system-prompt section with the authoring contract;
+#   - the `/harnessmm` command and /api/dsh-harnessmm/* audit routes.
+#
+# The `policy` object is the frozen CoT/Jev policy. Supported versions:
+#   6, 7      deterministic admission (fullSAR threshold only on 6)
+#   8, 10     priors-based admission; fails closed unless `priors` is a frozen
+#             TRAIN table ({phase: 'train', categories: {type: {phase, median_tokens}}})
+- insert:
+    - id: harnessmm
+      name: 'dsh-harnessmm-plugin'
+      config:
+        enabled: true
+        policy:
+          version: 6
+          maximum_candidates: 16
+          maximum_fast_steps: 8
+          maximum_public_bytes: 65536
+        # '' = auto-detect: pwsh, then bash, then shell.
+        shellTool: ''
+        # Receipt bytes the model sees per stream; guards always read the full
+        # native receipt.
+        maxReceiptBytes: 8192
+        # One-character selector over the same provider/model when more than
+        # one successor is eligible (deterministic when exactly one is). The
+        # judge needs a few tokens because a reasoning model spends some before
+        # its answer; a lone label with trailing punctuation is accepted, prose
+        # abstains.
+        selector:
+          enabled: true
+          maxTokens: 256
+          temperature: 0
+        # Required by policy versions 8 and 10.
+        priors: null

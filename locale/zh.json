@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "HarnessMM 决策复用",
+    "description": "面向 shell 工作的受控决策复用：按字面动作库执行后继命令，不再多花一次模型调用，并为每个被跳过的推理回调签发证书。"
+  },
+  "command": {
+    "harnessmm": "查看本会话的 HarnessMM 受控决策复用账本"
+  },
+  "tool": {
+    "terminal": "执行一条 shell 命令及其预先编写的受控后继动作"
+  }
+}

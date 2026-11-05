@@ -1,0 +1,70 @@
+{
+  "name": "dsh-harnessmm-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HarnessMM (arXiv 2610.32813) for DeepSeek Harness: a bank-aware `terminal` tool that executes guarded, already-determined continuations without another model call and certifies every bypassed reasoning callback.",
+  "license": "Apache-2.0",
+  "author": "dsh-plugin",
+  "type": "module",
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "selftest": "node scripts/selftest.mjs"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "policy.js",
+    "bank.js",
+    "guard.js",
+    "admission.js",
+    "controller.js",
+    "receipt.js",
+    "session.js",
+    "ledger.js",
+    "shell.js",
+    "tools.js",
+    "routes.js",
+    "selector.js",
+    "scripts/*.mjs",
+    "test/*.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh.md",
+    "INSTALL.md",
+    "NOTICE",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "harnessmm",
+    "guarded-decision-reuse",
+    "token-efficiency",
+    "agent-harness"
+  ]
+}
