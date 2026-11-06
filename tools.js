@@ -11,12 +11,15 @@
  * @module dsh-harnessmm/tools
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { BankContractError } from './policy.js'
 import { parseBank } from './bank.js'
 import { SubstitutionController } from './controller.js'
 import { clip, modelReceipt, receiptText } from './receipt.js'
 import { lookupSession, projectOf, readAuthoringTurn } from './session.js'
 import { describeCommand, dispatchShell } from './shell.js'
+import { resolveStoragePath } from './store.js'
 
 /** Tool parameters: the frozen root contract plus the bank argument channel. */
 export const PARAMETERS = {
@@ -92,7 +95,26 @@ export function createTerminalTool({ ctx, config, ledger, toolName, shell, selec
       }
     },
     async execute(args, exec) {
-      return runTerminal({ ctx, config, ledger, toolName, shell, selectFactory, args, exec })
+      try {
+        return await runTerminal({ ctx, config, ledger, toolName, shell, selectFactory, args, exec })
+      } catch (error) {
+        // The harness collapses a thrown tool error into "Tool batch execution
+        // failed"; keep the real cause in a local log and in the model-visible
+        // report so a broken dispatch is diagnosable from the conversation.
+        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+        logToolFailure(detail)
+        console.error('[dsh-harnessmm] terminal failed:', error)
+        return {
+          outcome: 'error',
+          substitutions: 0,
+          slow_tokens: 0,
+          selector_tokens: 0,
+          stop_reason: 'error',
+          receipts: [],
+          bank: null,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
     },
   }
 }
@@ -106,6 +128,17 @@ function buildDescription(toolName, shellTool) {
     `Use \`${toolName}\` when you can already name the dependent follow-up commands, and ${target} for one-off commands, background jobs, or when you must read a result before deciding.`,
     `Each call runs in a fresh shell: pass \`cwd\` instead of \`cd\`. Non-zero exits are reported, not treated as tool failures. Every dispatched command still goes through the harness's tool policy, approvals and sandbox settings.`,
   ].join(' ')
+}
+
+/** Append one failed dispatch to the local diagnostic log (never throws). */
+function logToolFailure(detail) {
+  try {
+    const file = join(dirname(resolveStoragePath('')), 'errors.log')
+    mkdirSync(dirname(file), { recursive: true })
+    appendFileSync(file, `[${new Date().toISOString()}] ${detail}\n`)
+  } catch {
+    /* diagnostics are best effort */
+  }
 }
 
 /** Frozen root arguments out of the tool input. */
@@ -346,6 +379,7 @@ export function renderValue(value) {
   if (!value || typeof value !== 'object') return String(value)
   const lines = []
   lines.push(`harnessmm: ${value.outcome}; ${value.substitutions} substitution(s) certified`)
+  if (value.error) lines.push(`error: ${value.error}`)
   if (value.bank_error) {
     lines.push(`bank rejected: ${value.bank_error}`)
     lines.push('the root command ran normally; author the next bank as fully literal nodes')

@@ -217,15 +217,43 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const webServer = typeof ctx.get === 'function' ? ctx.get('webServer') : undefined
-  if (webServer && typeof webServer.register === 'function') {
+  /** Register the audit routes on whichever context owns the web server. */
+  const registerRoutes = (scopeCtx) => {
+    const webServer = scopeCtx && scopeCtx.webServer !== undefined
+      ? scopeCtx.webServer
+      : typeof scopeCtx?.get === 'function' ? scopeCtx.get('webServer') : undefined
+    if (!webServer || typeof webServer.register !== 'function') return undefined
+    const routeDisposers = []
     try {
       for (const route of createRoutes({ ledger, policy: resolved.policy, config: resolved, toolName, getShellTool: () => shell.describe(), persistence })) {
-        disposers.push(webServer.register(route))
+        routeDisposers.push(webServer.register(route))
       }
     } catch (error) {
       console.warn(`[dsh-harnessmm] could not register audit routes: ${String(error)}`)
     }
+    return () => {
+      for (const dispose of routeDisposers) {
+        try {
+          dispose()
+        } catch {
+          /* already disposed */
+        }
+      }
+    }
+  }
+
+  // At boot a profile bundle can mount before the web server service exists;
+  // wait for it instead of silently skipping the audit routes. A dynamic
+  // install usually runs after the server is up, which is why the routes used
+  // to appear only in that path.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], (scoped) => {
+      const dispose = registerRoutes(scoped)
+      if (dispose) scoped.effect(() => dispose, 'dsh-harnessmm: audit routes')
+    })
+  } else {
+    const dispose = registerRoutes(ctx)
+    if (dispose) disposers.push(dispose)
   }
 
   ctx.effect(

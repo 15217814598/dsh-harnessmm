@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import { apply } from '../index.js'
 import { candidate, liveSignal, makeSession, makeShell, planText } from './harness.mjs'
 
-function mount({ text = '', toolName = 'terminal', config = { persist: false } } = {}) {
+function mount({ text = '', toolName = 'terminal', config = { persist: false }, serverAvailable = true } = {}) {
   const shell = makeShell({ 'echo root': { exitCode: 0, stdout: 'root-ok' }, 'echo A': { exitCode: 0, stdout: 'ran: echo A' } })
   const registry = new Map([[shell.tool.name, shell.tool]])
   const sessions = new Map([['session-1', makeSession({ text })]])
@@ -17,6 +17,7 @@ function mount({ text = '', toolName = 'terminal', config = { persist: false } }
   const commands = []
   const routes = []
   const effects = []
+  const injections = []
 
   const ctx = {
     tools: {
@@ -38,6 +39,10 @@ function mount({ text = '', toolName = 'terminal', config = { persist: false } }
       },
       getSectionOrder: () => 40,
     },
+    inject(deps, callback) {
+      injections.push({ deps, callback })
+      if (serverAvailable) callback(ctx)
+    },
     get(name) {
       if (name === 'sessions') return { get: (id) => sessions.get(id) }
       if (name === 'commands') {
@@ -48,7 +53,7 @@ function mount({ text = '', toolName = 'terminal', config = { persist: false } }
           },
         }
       }
-      if (name === 'webServer') {
+      if (name === 'webServer' && serverAvailable) {
         return {
           register(route) {
             routes.push(route)
@@ -65,7 +70,7 @@ function mount({ text = '', toolName = 'terminal', config = { persist: false } }
   }
 
   apply(ctx, config)
-  return { ctx, registry, sessions, sections, commands, routes, effects, shell, toolName }
+  return { ctx, registry, sessions, sections, commands, routes, effects, injections, shell, toolName }
 }
 
 function invoke(route, { method = 'GET', url = route.path } = {}) {
@@ -97,8 +102,38 @@ test('apply mounts the tool, the authoring section, the command and the audit ro
     '/api/dsh-harnessmm/ledger',
     '/api/dsh-harnessmm/status',
   ])
-  assert.equal(mounted.effects.length, 1)
-  assert.equal(mounted.effects[0].label, 'dsh-harnessmm: surfaces')
+  assert.equal(mounted.effects.length, 2)
+  assert.deepEqual(mounted.effects.map((effect) => effect.label).sort(), [
+    'dsh-harnessmm: audit routes',
+    'dsh-harnessmm: surfaces',
+  ])
+})
+
+test('audit routes wait for a web server that mounts after the plugin', async () => {
+  const mounted = mount({ serverAvailable: false })
+  assert.equal(mounted.routes.length, 0)
+  assert.equal(mounted.injections.length, 1)
+  assert.deepEqual(mounted.injections[0].deps, ['webServer'])
+
+  const scopedRoutes = []
+  mounted.injections[0].callback({
+    webServer: {
+      register(route) {
+        scopedRoutes.push(route)
+        return () => {}
+      },
+    },
+    effect(execute) {
+      execute()
+      return () => {}
+    },
+  })
+  assert.equal(scopedRoutes.length, 3)
+  assert.deepEqual(scopedRoutes.map((route) => route.path).sort(), [
+    '/api/dsh-harnessmm',
+    '/api/dsh-harnessmm/ledger',
+    '/api/dsh-harnessmm/status',
+  ])
 })
 
 test('the mounted command reports the ledger, and clear resets it', async () => {

@@ -33,13 +33,17 @@ const SHELL_DIALECT = new Set(['pwsh', 'bash'])
  * @returns {string}
  */
 export function resolveShellTool(ctx, configured, ownToolName, scope) {
-  const available = (name) => {
+  const visible = (name, view) => {
     try {
-      return Boolean(ctx.tools?.get?.(name, scope))
+      return Boolean(ctx.tools?.get?.(name, view))
     } catch {
       return false
     }
   }
+  // A composition may register the shell inside an agent-preset scope. Try the
+  // execution's Agent first; a resumed session can lose that binding, so also
+  // accept the same tool from the unscoped view before giving up.
+  const available = (name) => visible(name, scope) || visible(name, undefined)
   if (configured) {
     if (configured === ownToolName) throw new Error(`harnessmm: shellTool must not be this plugin's own tool (${configured})`)
     if (!available(configured)) {
