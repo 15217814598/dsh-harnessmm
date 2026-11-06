@@ -16,7 +16,7 @@
 
 | 形式 | 用途 |
 |---|---|
-| `dsh-harnessmm.tgz` | 标准 npm 打包，Plugin Manager「添加插件」直接粘贴路径安装（从 [Releases](https://github.com/15217814598/dsh-harnessmm/releases) 下载） |
+| `dsh-harnessmm.tgz` | 标准 npm 打包，Plugin Manager「添加插件」直接粘贴路径安装（从 [Releases](https://github.com/hfanshu/dsh-harnessmm/releases) 下载） |
 | `dsh-harnessmm.zip` | 解压后得到插件目录，适合走本地目录安装 |
 | 本仓库源码（git clone 后） | 开发 / 二次修改；仓库根目录即插件目录 |
 
@@ -26,7 +26,7 @@
 2. 点击 **添加插件**（Add plugin）；
 3. 在包名/地址框中粘贴 **tgz 的绝对路径**（如 `E:\dist\dsh-harnessmm.tgz`），
    或解压 zip 后粘贴**插件目录的绝对路径**（如 `E:\dist\dsh-harnessmm`），
-   也可以直接粘贴 GitHub 仓库地址 `15217814598/dsh-harnessmm`（需联网）；
+   也可以直接粘贴 GitHub 仓库地址 `hfanshu/dsh-harnessmm`（需联网）；
 4. 确认信任提示后点击 **安装**；
 5. 安装完成后在插件列表中确认出现 **dsh-harnessmm-plugin** 且已启用。
 
