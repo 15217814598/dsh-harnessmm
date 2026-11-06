@@ -133,8 +133,9 @@ session, and asserts:
 1. Send the *force a first test* prompt above. The tool card should show the
    three receipts and the `harnessmm:` line.
 2. Run `/harnessmm` — `banks authored` and `certified substitutions` increase.
-3. Open `/api/dsh-harnessmm` in the signed-in browser and confirm the certificate
-   rows for the session.
+3. Open the **Savings** tab (right of Fleet) and confirm the certificate rows
+   for the session; the same-origin `/api/dsh-harnessmm` page is the equivalent
+   HTML fallback.
 4. Prove a model call was actually skipped: one assistant step produced receipts
    for `root`, `A` and `B`, and each certificate carries
    `bypassed_slow_callback_id: "<authoring call>:omitted:N"` with
@@ -242,12 +243,15 @@ tokens.
 
 Surfaces:
 
-- In-app UI (web client): a HarnessMM strip in the bottom status bar (bypassed
-  calls and the estimated saving) opening the global `main` panel "HarnessMM
-  节省" — the four savings cards, one row per certificate (command, guard,
-  exact receipt, proxy saving) and the raw event stream. It registers through
-  the same slot mechanism as the token-usage dashboard and reads the
-  same-origin `/api/dsh-harnessmm/*` routes.
+- In-app UI (web client): a **Savings** tab in the session tab strip, right of
+  the Fleet tab — the four savings cards (net included), this session's and the
+  profile-wide estimated saving, a **session picker grouped by project**, one
+  row per certificate (command, guard, exact receipt, proxy saving) and the raw
+  event stream. It registers as a `conversation.view` list item (`order: 40`;
+  Fleet is 30) and reads the same-origin `/api/dsh-harnessmm/*` routes.
+- The picker groups sessions by their **project** (the session header's `cwd`)
+  and shows each project's cumulative saving; every certificate still belongs to
+  the session that produced it — project is a view, not the accounting unit.
 - `/harnessmm` — counters for the current session, plus the estimated saving
   (`/harnessmm clear` resets it).
 - `GET /api/dsh-harnessmm/status` — policy, tool, shell target, per-session
@@ -264,7 +268,13 @@ spend attributed to it (`estimated_saved_tokens`); selector spend that produced
 a fallback is counted in `selector_tokens_lost` and never as saved. Without a
 session log the slow tokens are 0, so the estimate is 0.
 
-The ledger is in-memory per profile process; nothing is written to disk.
+The ledger persists to `$DSH_HOME/storages/harnessmm/ledger.jsonl` by default
+(`~/.dsh/storages/harnessmm/ledger.jsonl`; JSONL, one event per line) and is
+rehydrated at boot, so earlier sessions remain selectable in the Savings tab. It
+stores certificates (command, guard, receipt excerpt, saved tokens), which
+therefore reach local disk; `persist: false` keeps the ledger memory-only. Turns
+from before the plugin was enabled cannot be backfilled — certificates are
+runtime facts, not an after-the-fact estimate.
 
 ## Configuration
 
@@ -285,6 +295,8 @@ The ledger is in-memory per profile process; nothing is written to disk.
           enabled: true
           maxTokens: 256       # reasoning models need a few tokens before the label
           temperature: 0
+        persist: true          # mirror the ledger to local JSONL
+        storagePath: ''        # '' = $DSH_HOME/storages/harnessmm/ledger.jsonl
         priors: null           # required by versions 8 and 10
 ```
 
@@ -323,7 +335,7 @@ These are deliberate, and each is visible in the code and tests:
 
 ```bash
 cd dsh-harnessmm
-node --check index.js client.js bank.js guard.js admission.js controller.js receipt.js session.js ledger.js shell.js tools.js routes.js selector.js policy.js
+node --check index.js client.js bank.js guard.js admission.js controller.js receipt.js session.js ledger.js shell.js tools.js routes.js store.js selector.js policy.js
 node --test test/*.mjs
 ```
 
@@ -336,6 +348,12 @@ After editing `client.js` the host needs a restart to serve the new generation:
 the `./client` export path is the browser module identity. To hand an open page
 a fresh generation without a restart, save the new version as `client.v2.js`
 and update the package.json export.
+
+The `id` in `__ModuleLoader__.load({ id })` **must equal package.json's `name`**.
+The loader keys factories by package; a mismatched id makes it treat the row as
+still missing, re-execute the bundle through its single-resource URL, and fail
+the whole web boot on `duplicate factory registration`
+(`test/client.test.mjs` guards against a regression).
 
 ## License
 

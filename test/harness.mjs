@@ -110,6 +110,7 @@ export function makeSession({
   toolCalls = [{ type: 'tool-call', id: callId, name: 'terminal', arguments: '{"command":"echo root"}' }],
   previousCallId = undefined,
   userText = 'Run the checks.',
+  cwd = 'E:/project/demo',
 } = {}) {
   const events = []
   let seq = 1
@@ -132,7 +133,7 @@ export function makeSession({
       stream: [],
     },
   })
-  return { snapshotEvents: () => events }
+  return { snapshotEvents: () => events, header: { cwd } }
 }
 
 /** A signal that never aborts. */

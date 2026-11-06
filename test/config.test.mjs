@@ -18,6 +18,8 @@ test('the default configuration is the frozen v6 deterministic policy', () => {
   assert.equal(config.maxReceiptBytes, 8192)
   assert.deepEqual(config.selector, { enabled: true, maxTokens: 256, temperature: 0, provider: '', model: '' })
   assert.equal(config.priors, null)
+  assert.equal(config.persist, true)
+  assert.equal(config.storagePath, '')
 })
 
 test('unknown keys and out-of-range limits are configuration errors', () => {

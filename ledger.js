@@ -9,18 +9,55 @@
  *   sar/uncertified-execution, jev/request, jev/decision, jev/slow-fallback,
  *   jev/compiled-native-action, jev/full-cot, jev/invalid-bank, harnessmm/run
  *
+ * Events are bucketed by session id; the optional store mirrors them to disk so
+ * a restarted profile still has the history. Sessions also carry the project
+ * (the session header's cwd) so the dashboard can group them.
+ *
  * @module dsh-harnessmm/ledger
  */
 
 const DEFAULT_LIMIT = 4000
 
-/** One in-memory ledger for every live session of the profile. */
+/** One ledger for every session of the profile. */
 export class Ledger {
   #sessions = new Map()
   #limit
+  #store
 
+  /**
+   * @param {{limit?:number, store?:{load():Map<string,object[]>, append(id:string,event:object):void, remove(id:string):void, clear():void}}} [options]
+   */
   constructor(options = {}) {
     this.#limit = Number.isSafeInteger(options.limit) && options.limit > 0 ? options.limit : DEFAULT_LIMIT
+    this.#store = options.store ?? null
+    this.#hydrate()
+  }
+
+  /** Restore persisted events before the first tool call of this process. */
+  #hydrate() {
+    if (!this.#store || typeof this.#store.load !== 'function') return
+    let loaded
+    try {
+      loaded = this.#store.load()
+    } catch {
+      return
+    }
+    if (!(loaded instanceof Map)) return
+    for (const [sessionId, events] of loaded) {
+      if (!Array.isArray(events) || events.length === 0) continue
+      const entry = { sessionId: String(sessionId), createdAt: 0, updatedAt: 0, project: '', events: [] }
+      for (const event of events) {
+        if (!event || typeof event !== 'object') continue
+        const at = typeof event.at === 'number' ? event.at : Date.now()
+        entry.events.push({ at, ...event })
+        if (typeof event.project === 'string' && event.project.length > 0) entry.project = event.project
+      }
+      if (entry.events.length > this.#limit) entry.events.splice(0, entry.events.length - this.#limit)
+      if (entry.events.length === 0) continue
+      entry.createdAt = entry.events[0].at
+      entry.updatedAt = entry.events[entry.events.length - 1].at
+      this.#sessions.set(entry.sessionId, entry)
+    }
   }
 
   /** Append one event for a session (the tool-call id or session id both work as a key). */
@@ -28,18 +65,30 @@ export class Ledger {
     const key = String(sessionId ?? 'unknown')
     let entry = this.#sessions.get(key)
     if (!entry) {
-      entry = { sessionId: key, createdAt: Date.now(), updatedAt: 0, events: [] }
+      entry = { sessionId: key, createdAt: Date.now(), updatedAt: 0, project: '', events: [] }
       this.#sessions.set(key, entry)
     }
-    entry.events.push({ at: Date.now(), ...event })
+    const stored = { at: Date.now(), ...event }
+    entry.events.push(stored)
+    if (typeof stored.project === 'string' && stored.project.length > 0) entry.project = stored.project
     if (entry.events.length > this.#limit) entry.events.splice(0, entry.events.length - this.#limit)
-    entry.updatedAt = Date.now()
+    entry.updatedAt = stored.at
+    try {
+      this.#store?.append(key, stored)
+    } catch {
+      /* the store already reports its own failures */
+    }
     return entry.events.length
   }
 
   /** Every retained event of one session, in append order. */
   events(sessionId) {
     return this.#sessions.get(String(sessionId ?? 'unknown'))?.events ?? []
+  }
+
+  /** The project (session cwd) a session's records were tagged with. */
+  project(sessionId) {
+    return this.#sessions.get(String(sessionId ?? 'unknown'))?.project ?? ''
   }
 
   /** Session ids with at least one event, most recently updated first. */
@@ -52,22 +101,58 @@ export class Ledger {
     return summarize(this.events(sessionId))
   }
 
-  /** Counters over every session, plus the per-session directory. */
+  /** Counters over every session, plus per-session and per-project directories. */
   overview() {
-    const sessions = this.sessionIds().map((sessionId) => ({ sessionId, ...this.summary(sessionId) }))
-    const totals = summarize([...this.#sessions.values()].flatMap((entry) => entry.events))
-    return { totals, sessions }
+    const entries = this.sessionIds().map((sessionId) => this.#sessions.get(sessionId))
+    const sessions = entries.map((entry) => ({
+      sessionId: entry.sessionId,
+      project: entry.project || '',
+      ...summarize(entry.events),
+    }))
+    const totals = summarize(entries.flatMap((entry) => entry.events))
+    return { totals, sessions, projects: summarizeProjects(entries) }
   }
 
   /** Drop one session (used by the HTTP API's DELETE). */
   clear(sessionId) {
-    return this.#sessions.delete(String(sessionId ?? 'unknown'))
+    const key = String(sessionId ?? 'unknown')
+    const removed = this.#sessions.delete(key)
+    try {
+      this.#store?.remove(key)
+    } catch {
+      /* store reports its own failure */
+    }
+    return removed
   }
 
   /** Drop every retained session. */
   clearAll() {
     this.#sessions.clear()
+    try {
+      this.#store?.clear()
+    } catch {
+      /* store reports its own failure */
+    }
   }
+}
+
+/** Sum session summaries into one row per project ('' = unknown project). */
+function summarizeProjects(entries) {
+  const byProject = new Map()
+  for (const entry of entries) {
+    const project = entry.project || ''
+    let row = byProject.get(project)
+    if (!row) {
+      row = { project, sessions: 0, runs: 0, banks_authored: 0, certified_substitutions: 0, deferred: 0, selector_abstentions: 0, invalid_banks: 0, slow_tokens: 0, selector_tokens: 0, estimated_saved_tokens: 0, selector_tokens_lost: 0 }
+      byProject.set(project, row)
+    }
+    const summary = summarize(entry.events)
+    row.sessions += 1
+    for (const key of ['runs', 'banks_authored', 'certified_substitutions', 'deferred', 'selector_abstentions', 'invalid_banks', 'slow_tokens', 'selector_tokens', 'estimated_saved_tokens', 'selector_tokens_lost']) {
+      row[key] += summary[key]
+    }
+  }
+  return [...byProject.values()].sort((a, b) => b.estimated_saved_tokens - a.estimated_saved_tokens)
 }
 
 /**
@@ -183,7 +268,7 @@ export function substitutions(events) {
 }
 
 /** The human-readable report the `/harnessmm` command prints. */
-export function summaryText(summary, policy) {
+export function summaryText(summary, policy, project) {
   return [
     `harnessmm policy v${policy.version} (${policy.enabled ? 'enabled' : 'disabled'})`,
     `  runs: ${summary.runs}`,
@@ -193,6 +278,7 @@ export function summaryText(summary, policy) {
     `  deferred to the model: ${summary.deferred}, selector abstentions: ${summary.selector_abstentions}`,
     `  invalid banks: ${summary.invalid_banks}`,
     `  slow tokens seen: ${summary.slow_tokens}, selector tokens spent: ${summary.selector_tokens} (lost: ${summary.selector_tokens_lost})`,
+    project ? `  project: ${project}` : '  project: unknown',
     summary.last_candidates.length ? `  last: ${summary.last_candidates.join(', ')}` : '  last: none',
   ].join('\n')
 }

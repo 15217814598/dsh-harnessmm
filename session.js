@@ -30,6 +30,18 @@ export function lookupSession(ctx, agent) {
   }
 }
 
+/** The session's project: its header cwd, or '' when the session exposes none. */
+export function projectOf(session) {
+  if (!session || typeof session !== 'object') return ''
+  try {
+    const header = session.header
+    const cwd = header && typeof header.cwd === 'string' ? header.cwd : typeof session.cwd === 'string' ? session.cwd : ''
+    return cwd
+  } catch {
+    return ''
+  }
+}
+
 /** Normalize one recorded dsh assistant message to the upstream authoring shape. */
 export function toAuthoringMessage(message) {
   if (!message || message.role !== 'assistant' || !Array.isArray(message.content)) return null

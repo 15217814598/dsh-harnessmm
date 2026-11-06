@@ -2,11 +2,14 @@
  * Mounting: what `apply` registers on a dsh-shaped context.
  */
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { candidate, liveSignal, makeSession, makeShell } from './harness.mjs'
+import { candidate, liveSignal, makeSession, makeShell, planText } from './harness.mjs'
 
-function mount({ text = '', toolName = 'terminal' } = {}) {
+function mount({ text = '', toolName = 'terminal', config = { persist: false } } = {}) {
   const shell = makeShell({ 'echo root': { exitCode: 0, stdout: 'root-ok' }, 'echo A': { exitCode: 0, stdout: 'ran: echo A' } })
   const registry = new Map([[shell.tool.name, shell.tool]])
   const sessions = new Map([['session-1', makeSession({ text })]])
@@ -61,7 +64,7 @@ function mount({ text = '', toolName = 'terminal' } = {}) {
     },
   }
 
-  apply(ctx, {})
+  apply(ctx, config)
   return { ctx, registry, sessions, sections, commands, routes, effects, shell, toolName }
 }
 
@@ -134,6 +137,10 @@ test('the status route reports policy, tool, shell and per-session counters', as
   assert.equal(payload.shellTool, 'pwsh')
   assert.equal(payload.totals.certified_substitutions, 1)
   assert.equal(payload.sessions[0].sessionId, 'session-1')
+  assert.equal(payload.sessions[0].project, 'E:/project/demo')
+  assert.equal(payload.projects[0].project, 'E:/project/demo')
+  assert.equal(payload.projects[0].estimated_saved_tokens, payload.totals.estimated_saved_tokens)
+  assert.equal(payload.persistence.enabled, false)
 
   const ledgerRoute = mounted.routes.find((route) => route.path === '/api/dsh-harnessmm/ledger')
   const ledger = await invoke(ledgerRoute, { url: '/api/dsh-harnessmm/ledger?sessionId=session-1' })
@@ -153,6 +160,28 @@ test('the dashboard route serves a self-contained HTML page', async () => {
   assert.match(response.headers['Content-Type'], /text\/html/)
   assert.match(response.body, /^<!doctype html>/)
   assert.match(response.body, /HarnessMM/)
+})
+
+test('a persisted ledger survives a remount and reports its project', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'harnessmm-apply-'))
+  const file = join(dir, 'ledger.jsonl')
+  try {
+    const config = { persist: true, storagePath: file }
+    const first = mount({ text: planText([candidate()]), config })
+    const exec = { callId: 'call_1', name: 'terminal', arguments: {}, agent: { id: 'session-1' }, signal: liveSignal() }
+    await first.ctx.tools.get('terminal').execute({ command: 'echo root' }, exec)
+
+    const second = mount({ config })
+    const statusRoute = second.routes.find((route) => route.path === '/api/dsh-harnessmm/status')
+    const status = JSON.parse((await invoke(statusRoute)).body)
+    assert.equal(status.persistence.enabled, true)
+    assert.equal(status.totals.certified_substitutions, 1)
+    assert.equal(status.sessions[0].sessionId, 'session-1')
+    assert.equal(status.sessions[0].project, 'E:/project/demo')
+    assert.equal(status.projects[0].project, 'E:/project/demo')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('a competing tool name falls back to harnessmm_terminal', () => {
@@ -175,7 +204,7 @@ test('a competing tool name falls back to harnessmm_terminal', () => {
     get: () => undefined,
     effect: () => () => {},
   }
-  apply(ctx, {})
+  apply(ctx, { persist: false })
   assert.equal(typeof registry.get('harnessmm_terminal')?.execute, 'function')
   assert.match(sections[0].text, /harnessmm_terminal/)
 })

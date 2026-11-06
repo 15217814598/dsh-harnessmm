@@ -5,46 +5,46 @@
  * bump it to a new file (client.v2.js, …) to hand an open page a fresh module
  * generation without an app restart.
  *
- * Two surfaces, one data source (the Host's same-origin /api/dsh-harnessmm):
- *   1. A slim always-visible strip in the root `shell.bottom` slot with the
- *      profile-wide bypassed-call count and the proxy saved tokens, plus a
- *      button that opens the dashboard.
- *   2. A full "HarnessMM 节省" dashboard registered as a global `main` panel
- *      (key `harnessmm`): the four savings cards, the context counters, one
- *      row per bypassed slow call (command, guard, exact receipt, proxy
- *      saving, the callback that did not happen) and the raw audit stream.
+ * One surface: a conversation-view tab named "节省" / "Savings" in the session
+ * tab strip, immediately to the right of "编队" (dsh-context's Fleet tab uses
+ * order 30). The tab body is the savings dashboard: the four savings cards, the
+ * context counters, one row per bypassed slow call (command, guard, exact
+ * receipt, proxy saving, the callback that did not happen) and the raw audit
+ * stream. It is session-scoped, so the ledger it reads is the open session's.
  *
  * All data arrives over HTTP; the browser never touches the ledger directly.
  * Styling inherits the host theme through --dsw-alias-* tokens.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-harnessmm',
+  // Must equal package.json's "name": the loader keys factories by package and
+  // treats a missing row as "not registered", retrying this bundle until it
+  // duplicates. Other plugin bundles use their full package name here.
+  id: 'dsh-harnessmm-plugin',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
     const NS = 'dsh-harnessmm';
     const STYLE_ID = 'dsh-harnessmm-style';
-    const PANEL_ID = 'harnessmm';
     const ROUTE = '/api/dsh-harnessmm';
     const REFRESH_MS = 10000;
+    // dsh-context: context tab = 20, Fleet tab = 30; sit right after Fleet.
+    const TAB_ORDER = 40;
+    const TAB_ID = 'harnessmm';
 
     // Inline dictionaries; locale/*.json files carry Plugin Manager meta.
     const DICT = {
       zh: {
-        'bar.label': 'HarnessMM 节省',
-        'bar.title': 'HarnessMM',
-        'bar.calls': '省掉 {{calls}} 次调用',
-        'bar.saved': '~{{saved}} tok',
-        'bar.off': '尚未启用',
+        'tab.savings': '节省',
         'state.loading': '正在读取 HarnessMM 账本…',
         'state.error': 'HarnessMM 账本不可用',
-        'action.panel': '节省面板',
         'action.refresh': '刷新',
         'action.clear': '清空本会话',
-        'action.back': '返回会话',
+        'action.html': 'HTML 面板',
         'action.events': '原始事件流（审计用）',
         'page.title': 'HarnessMM 节省',
         'page.badge': '策略 v{{version}} · {{tool}} → {{shell}}',
+        'total.label': '全部会话',
+        'total.value': '{{calls}} 次 · ~{{saved}} tok',
         'card.calls': '省掉的推理调用',
         'card.callsSub': '每张证书 = 一次没发生的模型调用',
         'card.saved': '估算节省 token',
@@ -68,28 +68,28 @@ window.__ModuleLoader__.load({
         'col.receipt': '回执',
         'col.saved': '节省 tok',
         'col.bypassed': '被省掉的回调',
-        'saved.title': 'slow {{slow}} − selector {{selector}}',
         'subs.empty': '本会话还没有被省掉的调用——让模型用 terminal 工具按 <CHISEL_PLAN> 契约编排一条确定性的命令链。',
         'events.empty': '本会话还没有 HarnessMM 事件。',
-        'clear.confirm': '清空本会话的 HarnessMM 账本？',
-        'sessions.empty': '暂无会话',
+        'clear.confirm': '清空该会话的 HarnessMM 账本？',
         'session.label': '会话',
+        'session.pick': '选择会话',
+        'session.noProject': '未分组',
+        'persist.on': '历史已保存',
+        'persist.off': '仅内存',
+        'persist.error': '持久化失败',
       },
       en: {
-        'bar.label': 'HarnessMM savings',
-        'bar.title': 'HarnessMM',
-        'bar.calls': '{{calls}} calls bypassed',
-        'bar.saved': '~{{saved}} tok',
-        'bar.off': 'not engaged yet',
+        'tab.savings': 'Savings',
         'state.loading': 'Loading the HarnessMM ledger…',
         'state.error': 'HarnessMM ledger unavailable',
-        'action.panel': 'Savings panel',
         'action.refresh': 'Refresh',
         'action.clear': 'Clear this session',
-        'action.back': 'Back to conversation',
+        'action.html': 'HTML panel',
         'action.events': 'Raw event stream (audit)',
         'page.title': 'HarnessMM savings',
         'page.badge': 'policy v{{version}} · {{tool}} → {{shell}}',
+        'total.label': 'All sessions',
+        'total.value': '{{calls}} calls · ~{{saved}} tok',
         'card.calls': 'Bypassed slow calls',
         'card.callsSub': 'each certificate = one model call that did not happen',
         'card.saved': 'Est. saved tokens (proxy)',
@@ -113,12 +113,15 @@ window.__ModuleLoader__.load({
         'col.receipt': 'Receipt',
         'col.saved': 'Saved tok',
         'col.bypassed': 'Bypassed callback',
-        'saved.title': 'slow {{slow}} − selector {{selector}}',
         'subs.empty': 'No bypassed calls in this session yet — ask the model to chain deterministic commands through the terminal tool under the <CHISEL_PLAN> contract.',
         'events.empty': 'No HarnessMM events in this session yet.',
         'clear.confirm': 'Clear the HarnessMM ledger for this session?',
-        'sessions.empty': 'No sessions yet',
         'session.label': 'Session',
+        'session.pick': 'Choose session',
+        'session.noProject': 'Ungrouped',
+        'persist.on': 'History saved',
+        'persist.off': 'Memory only',
+        'persist.error': 'Persistence failed',
       },
     };
 
@@ -258,20 +261,18 @@ window.__ModuleLoader__.load({
 
     const styleText = `
 .dhm-root{min-width:0}
-.dhm-bar{display:flex;align-items:center;gap:14px;padding:4px 16px;min-height:28px;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.08));color:var(--dsw-alias-label-secondary,#666);font-size:12px;line-height:1.4}
-.dhm-title{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border:none;background:transparent;border-radius:var(--dsw-radius-md,6px);color:var(--dsw-alias-label-secondary,#666);font-size:12px;cursor:pointer}
-.dhm-title:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05))}
-.dhm-stat{display:inline-flex;align-items:baseline;gap:5px;min-width:0}
-.dhm-stat-label{color:var(--dsw-alias-label-tertiary,#999)}
-.dhm-stat-value{color:var(--dsw-alias-label-primary,#333);font-variant-numeric:tabular-nums;font-weight:600}
-.dhm-badge{padding:1px 6px;border-radius:var(--dsw-radius-sm,4px);background:var(--dsw-alias-accent-primary-soft,rgba(47,124,246,.12));color:var(--dsw-alias-accent-primary,#2f7cf6);font-size:11px}
+.dhm-stat-label{color:var(--dsw-alias-label-tertiary,#999);font-size:12px}
+.dhm-badge{padding:1px 6px;border-radius:var(--dsw-radius-sm,4px);background:var(--dsw-alias-accent-primary-soft,rgba(47,124,246,.12));color:var(--dsw-alias-accent-primary,#2f7cf6);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dhm-error{color:var(--dsw-alias-state-error-primary,#e5484d);font-size:11px}
-.dhm-btn{padding:2px 8px;border-radius:var(--dsw-radius-md,6px);border:1px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));background:transparent;color:var(--dsw-alias-label-secondary,#666);font-size:11px;cursor:pointer;white-space:nowrap}
+.dhm-btn{padding:2px 8px;border-radius:var(--dsw-radius-md,6px);border:1px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));background:transparent;color:var(--dsw-alias-label-secondary,#666);font-size:11px;cursor:pointer;white-space:nowrap;text-decoration:none;line-height:1.6}
 .dhm-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#333)}
 .dhm-btn:disabled{opacity:.55;cursor:default}
-.dhm-btn:focus-visible,.dhm-select:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#2f7cf6);outline-offset:1px}
+.dhm-btn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#2f7cf6);outline-offset:1px}
+.dhm-select{font:inherit;font-size:11.5px;color:var(--dsw-alias-label-secondary,#666);background:transparent;border:1px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));border-radius:var(--dsw-radius-md,6px);padding:2px 6px;max-width:300px}
+.dhm-select:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#2f7cf6);outline-offset:1px}
+.dhm-persist{font-size:11px;color:var(--dsw-alias-label-tertiary,#999);white-space:nowrap}
+.dhm-persist.error{color:var(--dsw-alias-state-error-primary,#e5484d)}
 .dhm-spacer{flex:1 1 auto}
-.dhm-select{font:inherit;font-size:11px;color:var(--dsw-alias-label-secondary,#666);background:transparent;border:1px solid var(--dsw-alias-border-l3,rgba(0,0,0,.12));border-radius:var(--dsw-radius-md,6px);padding:2px 6px;max-width:340px}
 .dhm-page{padding:20px 24px 32px;color:var(--dsw-alias-label-primary,#333);font-size:13px;overflow-y:auto;height:100%;box-sizing:border-box;background:var(--dsw-alias-bg-base)}
 .dhm-page-inner{max-width:1160px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .dhm-page-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -306,14 +307,6 @@ window.__ModuleLoader__.load({
 .dhm-event-detail{color:var(--dsw-alias-label-secondary,#666);font-size:12px;word-break:break-word}
 `;
 
-    /** The one glyph for both surfaces. */
-    function Glyph() {
-      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
-        h('rect', { x: 2, y: 6.5, width: 5, height: 5, rx: 1, fill: 'currentColor', opacity: '.55' }),
-        h('path', { d: 'M4.5 6.5 L8.5 2.5 L12.5 6.5 Z', fill: 'currentColor', opacity: '.8' }),
-        h('rect', { x: 9, y: 6.5, width: 5, height: 7.5, rx: 1, fill: 'currentColor' }));
-    }
-
     /** Card used by the dashboard grids. */
     function Card({ label, value, sub, save }) {
       return h('div', { className: 'dhm-card' + (save ? ' save' : '') },
@@ -324,36 +317,6 @@ window.__ModuleLoader__.load({
 
     function Tag({ text, tone }) {
       return h('span', { className: 'dhm-tag' + (tone === 'ok' ? ' ok' : tone === 'warn' ? ' warn' : '') }, text);
-    }
-
-    // ---- bottom bar ---------------------------------------------------------
-    function HarnessBar({ t, lang, ctx }) {
-      const loader = React.useCallback(() => fetchJson(`${ROUTE}/status`), []);
-      const [state, load] = usePolled(loader, REFRESH_MS);
-      const totals = state.data && state.data.totals;
-      const openPanel = () => {
-        try {
-          if (ctx.layout && typeof ctx.layout.selectPanel === 'function') ctx.layout.selectPanel(PANEL_ID);
-        } catch (error) {
-          console.warn('harnessmm: selectPanel failed', error);
-        }
-      };
-      return h('div', { className: 'dhm-root' },
-        h('div', { className: 'dhm-bar', role: 'group', 'aria-label': t('bar.label') },
-          h('button', { type: 'button', className: 'dhm-title', 'aria-label': t('bar.label'), onClick: openPanel },
-            h(Glyph), t('bar.title')),
-          state.error
-            ? h('span', { className: 'dhm-error' }, t('state.error'))
-            : totals
-              ? h(React.Fragment, null,
-                  h('span', { className: 'dhm-stat' },
-                    h('span', { className: 'dhm-stat-label' }, interpolate(t('bar.calls'), { calls: totals.certified_substitutions })),
-                    h('span', { className: 'dhm-badge' }, interpolate(t('bar.saved'), { saved: formatCount(totals.estimated_saved_tokens, lang) }))),
-                  totals.certified_substitutions === 0 ? h('span', { className: 'dhm-stat-label' }, t('bar.off')) : null)
-              : h('span', { className: 'dhm-stat-label' }, t('state.loading')),
-          h('span', { className: 'dhm-spacer' }),
-          h('button', { type: 'button', className: 'dhm-btn', onClick: openPanel }, t('action.panel')),
-          h('button', { type: 'button', className: 'dhm-btn', onClick: load, disabled: state.loading }, t('action.refresh'))));
     }
 
     // ---- one bypassed slow call ---------------------------------------------
@@ -374,14 +337,31 @@ window.__ModuleLoader__.load({
         h('td', null, h('code', { className: 'dhm-code', title: bypassed }, bypassed.length > 34 ? `${bypassed.slice(0, 31)}…` : bypassed)));
     }
 
-    // ---- the dashboard (registered as a `main` panel) ------------------------
-    function HarnessPanel({ t, lang, ctx }) {
+    /** Last path segment of a project cwd, for compact labels. */
+    function projectName(project, fallback) {
+      if (typeof project !== 'string' || project.length === 0) return fallback;
+      const parts = project.split(/[\\/]+/).filter(Boolean);
+      return parts.length > 0 ? parts[parts.length - 1] : project;
+    }
+
+    /** Compact session id for a picker option; the full id stays in `title`. */
+    function shortSession(id) {
+      const text = String(id ?? '');
+      return text.length > 14 ? `…${text.slice(-10)}` : text;
+    }
+
+    // ---- the savings tab body (registered into `conversation.view`) ----------
+    function HarnessView({ t, lang, sessionId }) {
       const statusLoader = React.useCallback(() => fetchJson(`${ROUTE}/status`), []);
       const [statusState, reloadStatus] = usePolled(statusLoader, REFRESH_MS);
-      const sessions = (statusState.data && statusState.data.sessions) || [];
-      const [sessionId, setSessionId] = React.useState('');
+      const status = statusState.data;
+      const sessions = (status && status.sessions) || [];
+      const bound = String(sessionId || '');
+      // Session-scoped view: default to the open session, but let the picker
+      // browse every session the (persisted) ledger knows about.
+      const [picked, setPicked] = React.useState('');
+      const effective = picked || bound || (sessions[0] && sessions[0].sessionId) || '';
 
-      const effective = sessionId || (sessions[0] && sessions[0].sessionId) || '';
       const ledgerLoader = React.useCallback(
         () => fetchJson(`${ROUTE}/ledger${effective ? `?sessionId=${encodeURIComponent(effective)}` : ''}`),
         [effective],
@@ -405,19 +385,51 @@ window.__ModuleLoader__.load({
         reload();
       };
 
-      const back = () => {
-        try {
-          if (ctx.layout && typeof ctx.layout.selectPanel === 'function') ctx.layout.selectPanel(null);
-        } catch (error) {
-          console.warn('harnessmm: selectPanel(null) failed', error);
-        }
-      };
-
       const summary = ledgerState.data && ledgerState.data.summary;
-      const status = statusState.data;
+      const totals = status && status.totals;
       const rows = (ledgerState.data && ledgerState.data.substitutions) || [];
       const events = (ledgerState.data && ledgerState.data.events) || [];
       const net = summary ? summary.estimated_saved_tokens - summary.selector_tokens_lost : 0;
+      const selected = sessions.find((row) => row.sessionId === effective) || null;
+      const project = selected && typeof selected.project === 'string' ? selected.project : '';
+      const persistence = status && status.persistence;
+
+      // Session picker, grouped by project (session cwd). Groups are ordered by
+      // their saved tokens; the active session's group stays first.
+      const pickerRows = sessions.slice();
+      if (effective && !pickerRows.some((row) => row.sessionId === effective)) {
+        pickerRows.unshift({ sessionId: effective, project: '', certified_substitutions: 0, estimated_saved_tokens: 0 });
+      }
+      const groups = [];
+      const groupIndex = new Map();
+      for (const row of pickerRows) {
+        const key = typeof row.project === 'string' ? row.project : '';
+        let group = groupIndex.get(key);
+        if (!group) {
+          group = { project: key, rows: [], saved: 0 };
+          groupIndex.set(key, group);
+          groups.push(group);
+        }
+        group.rows.push(row);
+        group.saved += Number(row.estimated_saved_tokens ?? 0);
+      }
+      groups.sort((a, b) => b.saved - a.saved);
+      const activeGroup = groups.findIndex((group) => group.rows.some((row) => row.sessionId === effective));
+      if (activeGroup > 0) groups.unshift(...groups.splice(activeGroup, 1));
+
+      const picker = h('select', {
+        className: 'dhm-select',
+        value: effective,
+        'aria-label': t('session.pick'),
+        onChange: (event) => setPicked(event.target.value),
+      }, groups.map((group) => h('optgroup', {
+        key: group.project || '__none__',
+        label: `${projectName(group.project, t('session.noProject'))} · ~${formatCount(group.saved, lang)} tok`,
+      }, group.rows.map((row) => h('option', {
+        key: row.sessionId,
+        value: row.sessionId,
+        title: row.sessionId,
+      }, `${shortSession(row.sessionId)} · ${formatCount(row.certified_substitutions, lang)} · ~${formatCount(row.estimated_saved_tokens, lang)} tok`)))));
 
       const cards = summary
         ? h(React.Fragment, null,
@@ -474,24 +486,29 @@ window.__ModuleLoader__.load({
                   shell: status.shellTool || 'auto',
                 }))
               : null,
+            totals
+              ? h('span', {
+                  className: 'dhm-badge',
+                  title: t('total.label'),
+                }, `${t('total.label')} ${interpolate(t('total.value'), {
+                  calls: formatCount(totals.certified_substitutions, lang),
+                  saved: formatCount(totals.estimated_saved_tokens, lang),
+                })}`)
+              : null,
             h('span', { className: 'dhm-spacer' }),
-            statusState.error ? h('span', { className: 'dhm-error' }, t('state.error')) : null,
-            h('span', { className: 'dhm-stat-label' }, t('session.label')),
-            sessions.length > 0
-              ? h('select', {
-                  className: 'dhm-select',
-                  value: effective,
-                  onChange: (event) => setSessionId(event.target.value),
-                }, sessions.map((session) => h('option', {
-                  key: session.sessionId,
-                  value: session.sessionId,
-                }, `${session.sessionId} (${session.certified_substitutions} · ~${formatCount(session.estimated_saved_tokens, lang)} tok)`)))
-              : h('span', { className: 'dhm-stat-label' }, t('sessions.empty')),
+            h('span', { className: 'dhm-page-badge', title: project || t('session.noProject') }, `${t('session.label')} ${projectName(project, t('session.noProject'))}`),
+            persistence
+              ? h('span', {
+                  className: `dhm-persist${persistence.error ? ' error' : ''}`,
+                  title: persistence.error || persistence.path || '',
+                }, persistence.error ? t('persist.error') : persistence.enabled ? t('persist.on') : t('persist.off'))
+              : null,
+            picker,
             h('button', { type: 'button', className: 'dhm-btn', onClick: reload, disabled: statusState.loading }, t('action.refresh')),
             h('button', { type: 'button', className: 'dhm-btn', onClick: clear }, t('action.clear')),
-            h('button', { type: 'button', className: 'dhm-btn', onClick: back }, t('action.back'))),
+            h('a', { className: 'dhm-btn', href: ROUTE, target: '_blank', rel: 'noreferrer' }, t('action.html'))),
           !summary && !ledgerState.error ? h('div', { className: 'dhm-stat-label' }, t('state.loading')) : null,
-          ledgerState.error ? h('span', { className: 'dhm-error' }, ledgerState.error) : null,
+          ledgerState.error ? h('span', { className: 'dhm-error' }, t('state.error')) : null,
           cards,
           h('div', { className: 'dhm-section' },
             h('div', { className: 'dhm-section-title' }, t('subs.title')),
@@ -502,20 +519,21 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'layout'],
+      inject: ['slots', 'locale'],
       apply(ctx) {
         ensureStyle();
         const t = createT(ctx);
         const lang = languageOf(ctx);
-        ctx.slots.inject('shell.bottom', () => ctx.slots.register({
-          name: 'shell.bottom',
-          id: 'harnessmm-bar',
-          order: 11,
-        }, () => h(HarnessBar, { t, lang, ctx })));
-        ctx.slots.inject('main', () => ctx.slots.register({
-          name: 'main',
-          key: PANEL_ID,
-        }, () => h(HarnessPanel, { t, lang, ctx })));
+        // A conversation-view tab in the session tab strip, next to 编队 /
+        // Fleet (dsh-context registers context=20, fleet=30; builtin
+        // chat/trajectory are lower). The list slot's `label` is the tab text.
+        ctx.slots.inject('conversation.view', () => ctx.slots.register({
+          name: 'conversation.view',
+          id: TAB_ID,
+          order: TAB_ORDER,
+          locale: NS,
+          label: () => t('tab.savings'),
+        }, (props) => h(HarnessView, { t, lang, sessionId: props && props.sessionId })));
       },
     };
   },

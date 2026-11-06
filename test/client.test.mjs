@@ -14,6 +14,15 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'client.js'), 'utf8')
+const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
+
+test('the loader id is the package name', () => {
+  // The client-modules loader keys factories by package name; a mismatched id
+  // makes it re-execute the bundle and throw "duplicate factory registration".
+  const declared = /__ModuleLoader__\.load\(\{\s*(?:\/\/[^\n]*\n\s*)*id:\s*'([^']+)'/.exec(source)
+  assert.ok(declared, 'client.js must call __ModuleLoader__.load with an id')
+  assert.equal(declared[1], pkg.name)
+})
 
 /** Evaluate the client script against a stubbed ModuleLoader; return the applied module. */
 function loadClientModule() {
@@ -33,10 +42,10 @@ function loadClientModule() {
 test('the client module registers against the module loader', () => {
   const module = loadClientModule()
   assert.equal(typeof module.apply, 'function')
-  assert.deepEqual([...module.inject].sort(), ['layout', 'locale', 'slots'])
+  assert.deepEqual([...module.inject].sort(), ['locale', 'slots'])
 })
 
-test('the client applies into the shell.bottom slot and a main panel', () => {
+test('the client registers one conversation-view tab after the Fleet tab', () => {
   const module = loadClientModule()
   const injected = []
   const descriptors = []
@@ -55,16 +64,20 @@ test('the client applies into the shell.bottom slot and a main panel', () => {
     },
   }
   module.apply(ctx)
-  assert.deepEqual(injected.slice().sort(), ['main', 'shell.bottom'])
-  assert.deepEqual(descriptors, [
-    { name: 'shell.bottom', id: 'harnessmm-bar', order: 11 },
-    { name: 'main', key: 'harnessmm' },
-  ])
-  for (const render of renders) {
-    const element = render()
-    assert.equal(typeof element.type, 'function')
-    assert.ok(element.props && typeof element.props.t === 'function')
-  }
+  assert.deepEqual(injected, ['conversation.view'])
+  assert.equal(descriptors.length, 1)
+  const descriptor = descriptors[0]
+  assert.equal(descriptor.name, 'conversation.view')
+  assert.equal(descriptor.id, 'harnessmm')
+  assert.equal(descriptor.order, 40)
+  assert.equal(descriptor.locale, 'dsh-harnessmm')
+  assert.equal(typeof descriptor.label, 'function')
+  assert.equal(descriptor.label(), '节省')
+
+  const element = renders[0]({ sessionId: 'session-1' })
+  assert.equal(typeof element.type, 'function')
+  assert.ok(element.props && typeof element.props.t === 'function')
+  assert.equal(element.props.sessionId, 'session-1')
 })
 
 test('the client falls back to the inline dictionary without a locale service', () => {
@@ -82,11 +95,11 @@ test('the client falls back to the inline dictionary without a locale service', 
     },
   }
   module.apply(ctx)
-  const panel = renders[1]()
-  const text = panel.props.t('page.title')
-  assert.equal(text, 'HarnessMM 节省')
-  assert.equal(panel.props.t('card.saved', {}) , '估算节省 token')
-  assert.equal(panel.props.lang, 'zh')
+  const element = renders[0]({ sessionId: 's' })
+  assert.equal(element.props.t('page.title'), 'HarnessMM 节省')
+  assert.equal(element.props.t('tab.savings'), '节省')
+  assert.equal(element.props.t('card.saved', {}), '估算节省 token')
+  assert.equal(element.props.lang, 'zh')
 })
 
 test('every t() key exists in both the zh and en dictionaries', () => {

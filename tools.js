@@ -15,7 +15,7 @@ import { BankContractError } from './policy.js'
 import { parseBank } from './bank.js'
 import { SubstitutionController } from './controller.js'
 import { clip, modelReceipt, receiptText } from './receipt.js'
-import { lookupSession, readAuthoringTurn } from './session.js'
+import { lookupSession, projectOf, readAuthoringTurn } from './session.js'
 import { describeCommand, dispatchShell } from './shell.js'
 
 /** Tool parameters: the frozen root contract plus the bank argument channel. */
@@ -134,13 +134,17 @@ async function runTerminal({ ctx, config, ledger, toolName, shell, selectFactory
   const rootRequest = literalArguments(args)
 
   const session = lookupSession(ctx, exec?.agent)
+  const project = projectOf(session)
   const authoring = readAuthoringTurn(session, callId)
   const slowTokens = authoring?.usageTokens ?? 0
 
   const events = []
   const record = (event) => {
     events.push(event)
-    ledger.record(sessionId, event)
+    // Tag the persisted/ledger copy with the session's project (its cwd) so a
+    // restarted profile can group history; the in-memory event stays unchanged
+    // for the controller's own bookkeeping.
+    ledger.record(sessionId, project ? { ...event, project } : event)
   }
 
   let bank = null

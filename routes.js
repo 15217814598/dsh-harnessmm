@@ -1,9 +1,9 @@
 /**
  * Audit routes for dsh-harnessmm.
  *
- * The primary visual surface is the in-app client panel (client.js, registered
- * through the web client's `main` slot); these Host routes are its same-origin
- * data source plus a self-contained HTML fallback page:
+ * The primary visual surface is the in-app conversation-view tab (client.js,
+ * registered through the web client's `conversation.view` list slot); these Host
+ * routes are its same-origin data source plus a self-contained HTML fallback page:
  *
  *   GET    /api/dsh-harnessmm            → savings dashboard (HTML fallback)
  *   GET    /api/dsh-harnessmm/status     → policy/config + per-session counters
@@ -47,8 +47,9 @@ function queryParam(req, name) {
  * @param {object} input.config resolved plugin config
  * @param {string} input.toolName
  * @param {() => string} input.getShellTool lazily resolved native shell tool
+ * @param {{enabled:boolean,path:string,error:string|null,bytes:number}} [input.persistence]
  */
-export function createRoutes({ ledger, policy, config, toolName, getShellTool }) {
+export function createRoutes({ ledger, policy, config, toolName, getShellTool, persistence }) {
   const status = () => ({
     ok: true,
     plugin: 'dsh-harnessmm',
@@ -57,6 +58,7 @@ export function createRoutes({ ledger, policy, config, toolName, getShellTool })
     shellTool: getShellTool(),
     selector: { enabled: config.selector.enabled, maxTokens: config.selector.maxTokens },
     priors: config.priors ? { categories: Object.keys(config.priors.categories) } : null,
+    persistence: persistence ?? { enabled: false, path: '', error: null, bytes: 0 },
     ...ledger.overview(),
   })
 
@@ -336,13 +338,16 @@ async function loadStatus() {
   select.replaceChildren(...status.sessions.map(function (session) {
     const option = document.createElement('option');
     option.value = session.sessionId;
-    option.textContent = session.sessionId + ' (' + session.certified_substitutions + ' 次 · ~' + fmt(session.estimated_saved_tokens) + ' tok)';
+    const parts = String(session.project || '').split(/[\\\\/]+/).filter(Boolean);
+    const project = parts.length > 0 ? parts[parts.length - 1] : '未分组';
+    option.textContent = project + ' · ' + session.sessionId + ' (' + session.certified_substitutions + ' 次 · ~' + fmt(session.estimated_saved_tokens) + ' tok)';
     return option;
   }));
   if (previous && select.querySelector('option[value="' + CSS.escape(previous) + '"]')) select.value = previous;
   const current = status.sessions.find(function (s) { return s.sessionId === select.value; }) || status.totals;
   renderSavings(current);
-  note.textContent = 'policy v' + status.policy.version + ' · tool ' + status.toolName + ' → ' + status.shellTool;
+  const persisted = status.persistence && status.persistence.enabled ? '已落盘' : '仅内存';
+  note.textContent = 'policy v' + status.policy.version + ' · tool ' + status.toolName + ' → ' + status.shellTool + ' · 账本' + persisted;
 }
 async function loadLedger() {
   const sessionId = select.value;

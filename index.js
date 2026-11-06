@@ -14,8 +14,8 @@
  *     shell tool so tool policy, approvals and sandboxing still apply;
  *   - a system-prompt section carrying the authoring contract;
  *   - the `/harnessmm` command and /api/dsh-harnessmm/* audit routes;
- *   - the in-app savings dashboard (client.js: a bottom-bar strip plus a `main`
- *     panel in the web client, reading the audit routes same-origin).
+ *   - the in-app savings dashboard (client.js: a conversation-view tab in the
+ *     session tab strip next to Fleet, reading the audit routes same-origin).
  *
  * Every substitution records `certified-native-substitution/v1`, naming the slow
  * callback that did not happen.
@@ -29,6 +29,7 @@ import { normalizePolicy, planInstruction } from './policy.js'
 import { createRoutes } from './routes.js'
 import { createSelectorFactory } from './selector.js'
 import { resolveShellTool } from './shell.js'
+import { LedgerStore, resolveStoragePath } from './store.js'
 import { createTerminalTool } from './tools.js'
 
 /** Stable cordis plugin id. */
@@ -37,7 +38,7 @@ export const name = 'harnessmm'
 /** The two services the mechanism cannot work without. */
 export const inject = ['tools', 'systemPrompt']
 
-const CONFIG_KEYS = ['enabled', 'policy', 'shellTool', 'maxReceiptBytes', 'selector', 'priors']
+const CONFIG_KEYS = ['enabled', 'policy', 'shellTool', 'maxReceiptBytes', 'selector', 'priors', 'persist', 'storagePath']
 const SELECTOR_KEYS = ['enabled', 'maxTokens', 'temperature', 'provider', 'model']
 
 /**
@@ -78,6 +79,11 @@ export function resolveConfig(input = {}) {
   if (typeof provider !== 'string' || typeof model !== 'string') throw new Error('harnessmm: selector.provider/model must be strings')
   if (rawSelector.enabled !== undefined && typeof rawSelector.enabled !== 'boolean') throw new Error('harnessmm: selector.enabled must be a boolean')
 
+  const persist = input.persist ?? true
+  if (typeof persist !== 'boolean') throw new Error('harnessmm: persist must be a boolean')
+  const storagePath = input.storagePath ?? ''
+  if (typeof storagePath !== 'string') throw new Error('harnessmm: storagePath must be a string')
+
   return {
     enabled,
     policy,
@@ -85,6 +91,8 @@ export function resolveConfig(input = {}) {
     maxReceiptBytes,
     selector: { enabled: rawSelector.enabled ?? true, maxTokens, temperature, provider, model },
     priors: normalizePriors(input.priors ?? null),
+    persist,
+    storagePath,
   }
 }
 
@@ -152,7 +160,16 @@ export function apply(ctx, config = {}) {
 
   const toolName = pickToolName(ctx)
   const shell = createShellTarget(ctx, resolved.shellTool, toolName)
-  const ledger = new Ledger()
+  let store = null
+  if (resolved.persist) {
+    try {
+      store = new LedgerStore({ filePath: resolveStoragePath(resolved.storagePath) })
+    } catch (error) {
+      console.warn(`[dsh-harnessmm] ledger persistence unavailable, keeping memory only: ${String(error)}`)
+    }
+  }
+  const ledger = new Ledger(store ? { store } : {})
+  const persistence = store ? store.describe() : { enabled: false, path: '', error: null, bytes: 0 }
   const disposers = []
 
   const tool = createTerminalTool({
@@ -191,7 +208,7 @@ export function apply(ctx, config = {}) {
               ledger.clear(sessionId)
               return { kind: 'success', text: 'harnessmm: cleared the ledger for this session' }
             }
-            return { kind: 'success', text: summaryText(ledger.summary(sessionId), resolved.policy) }
+            return { kind: 'success', text: summaryText(ledger.summary(sessionId), resolved.policy, ledger.project(sessionId)) }
           },
         }),
       )
@@ -203,7 +220,7 @@ export function apply(ctx, config = {}) {
   const webServer = typeof ctx.get === 'function' ? ctx.get('webServer') : undefined
   if (webServer && typeof webServer.register === 'function') {
     try {
-      for (const route of createRoutes({ ledger, policy: resolved.policy, config: resolved, toolName, getShellTool: () => shell.describe() })) {
+      for (const route of createRoutes({ ledger, policy: resolved.policy, config: resolved, toolName, getShellTool: () => shell.describe(), persistence })) {
         disposers.push(webServer.register(route))
       }
     } catch (error) {
@@ -228,6 +245,7 @@ export function apply(ctx, config = {}) {
     `[dsh-harnessmm] mounted ${toolName} (policy v${resolved.policy.version}` +
       `, priors ${resolved.priors ? Object.keys(resolved.priors.categories).join('/') : 'off'}` +
       `, selector ${resolved.selector.enabled ? 'on' : 'off'}` +
-      `, shell ${resolved.shellTool || 'auto'})`,
+      `, shell ${resolved.shellTool || 'auto'}` +
+      `, ledger ${persistence.enabled ? persistence.path : 'memory'})`,
   )
 }

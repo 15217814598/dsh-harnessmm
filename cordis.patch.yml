@@ -36,5 +36,10 @@
           enabled: true
           maxTokens: 256
           temperature: 0
+        # Persist the ledger across restarts (JSONL under
+        # $DSH_HOME/storages/harnessmm/ledger.jsonl by default). Command text and
+        # receipts are written to local profile storage; false keeps memory-only.
+        persist: true
+        storagePath: ''
         # Required by policy versions 8 and 10.
         priors: null

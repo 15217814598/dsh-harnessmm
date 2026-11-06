@@ -2,12 +2,13 @@
 
 在 DeepSeek Harness 中安装「HarnessMM 节省」插件：一个能读懂动作库的 `terminal`
 工具——慢思考轮次编排好的确定性后继命令不再付推理调用，每次替换都签发可审计的证书；
-应用内底部状态栏与「HarnessMM 节省」面板实时展示省掉的调用与估算节省。
+会话顶部「编队」右侧的「节省」标签页实时展示省掉的调用与估算节省。
 
 - **兼容性**：DeepSeek Harness **0.2.1-rc.2**（其他 0.2.x 版本通常兼容）；Node
   ≥ 22.13 或 ≥ 24（仅使用内置模块）
 - **零依赖零构建**：插件不依赖任何 npm 包，离线可装
-- **数据本地**：账本只保存在 profile 进程内存里，不写磁盘、不上传
+- **数据本地**：账本默认落盘在 `~/.dsh/storages/harnessmm/ledger.jsonl`（本地，
+  不联网）；命令、guard 与回执片段会写进该文件，`persist: false` 可退回纯内存
 - **策略版本**：默认 v6（确定性准入）；v7/v8/v10 需要改 bundle 配置，其中
   v8/v10 还需要冻结的 TRAIN 先验表，缺先验时失败关闭
 
@@ -53,9 +54,10 @@ bundle patch 会插入一行 `harnessmm` 配置（policy v6 默认值）。本�
 
 1. 重启宿主后，启动日志应出现：
    `[dsh-harnessmm] mounted terminal (policy v6, priors off, selector on, shell auto)`；
-2. 底部状态栏出现 **HarnessMM** 条目（省掉的调用数与估算节省）；
+2. 会话标签栏出现 **「节省」** 标签页（在「编队」右侧），显示省掉的调用数与估算节省；
 3. 会话里执行 `/harnessmm` 查看计数；跑一条确定性的命令链（如
-   build → test → smoke），面板与账本会逐张冒出证书。
+   build → test → smoke），「节省」标签页与账本会逐张冒出证书；
+4. 标签页里的会话选择器按项目分组，重启后仍能选到历史会话（来自上面那个 JSONL）。
 
 ## 注意
 

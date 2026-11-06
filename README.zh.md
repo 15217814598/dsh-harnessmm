@@ -125,7 +125,8 @@ node --test test/*.test.mjs    # 51 个单元/集成测试
 
 1. 发上面那条「点名验证」的提示。工具卡片应显示三条回执和 `harnessmm:` 那一行。
 2. 输入 `/harnessmm`——`banks authored` 与 `certified substitutions` 会增加。
-3. 在已登录的浏览器打开 `/api/dsh-harnessmm`，能看到该会话的证书行。
+3. 打开会话顶部的「节省」标签页（「编队」右侧），能看到本会话的证书行；
+   同源 `/api/dsh-harnessmm` 是等价的 HTML 兜底。
 4. 证明真的省掉了模型调用：**同一个助手步骤**就产出了 `root`、`A`、`B` 三条回执，
    且每张证书都带 `bypassed_slow_callback_id: "<编写调用>:omitted:N"` 和
    `slow_requests_at_boundary: 0`。
@@ -226,10 +227,12 @@ node --test test/*.test.mjs    # 51 个单元/集成测试
 
 可用界面：
 
-- 应用内界面（web 客户端）：底部状态栏的 HarnessMM 条目（省掉的调用数与估算节省），
-  点开 `main` 全局面板「HarnessMM 节省」——四张节省卡、逐张证书的命令/guard/精确回执/
-  节省 token、原始事件流，与「使用统计」面板同一注册机制；数据来自同源
-  `/api/dsh-harnessmm/*`。
+- 应用内界面（web 客户端）：会话标签栏中「编队」右侧的 **「节省」** 标签页——
+  四张节省卡（含净节省）、本会话与全部会话的估算节省、**会话选择器（按项目分组）**、
+  逐张证书的命令/guard/精确回执/节省 token、原始事件流；注册为 `conversation.view`
+  列表项（`order: 40`，编队为 30），数据来自同源 `/api/dsh-harnessmm/*`。
+- 会话选择器按**会话所属项目**（会话头部的 `cwd`）分组，组标题给出该项目累计节省；
+  单条证书仍归属于产生它的会话，项目只是分组视图。
 - `/harnessmm`：当前会话计数与估算节省（`/harnessmm clear` 清空）。
 - `GET /api/dsh-harnessmm/status`：策略、工具、shell 目标、各会话计数（含
   `estimated_saved_tokens`）。
@@ -243,7 +246,11 @@ node --test test/*.test.mjs    # 51 个单元/集成测试
 弃权花掉的 token 计入 `selector_tokens_lost`，绝不计作节省。会话日志不可用时慢调用
 token 按 0 计，估算因此也是 0。
 
-账本保存在 profile 进程内存里，不写磁盘。
+账本默认持久化在 `$DSH_HOME/storages/harnessmm/ledger.jsonl`（默认
+`~/.dsh/storages/harnessmm/ledger.jsonl`，JSONL、每个事件一行），重启后自动回填，
+所以历史会话仍能在「节省」标签页里选到。它记录的是**证书**（命令、guard、回执片段、
+节省 token），这些内容因此会写到本地磁盘；`persist: false` 可退回纯内存。
+启用插件之前的对话无法回填——证书是运行时事实，不做事后推断。
 
 ## 配置
 
@@ -264,6 +271,8 @@ token 按 0 计，估算因此也是 0。
           enabled: true
           maxTokens: 256       # 推理模型会先用掉一些 token 才给出标签
           temperature: 0
+        persist: true          # 把账本落到本地 JSONL（关掉则纯内存）
+        storagePath: ''        # '' = $DSH_HOME/storages/harnessmm/ledger.jsonl
         priors: null           # 版本 8、10 必需
 ```
 
@@ -295,7 +304,7 @@ token 按 0 计，估算因此也是 0。
 
 ```bash
 cd dsh-harnessmm
-node --check index.js client.js bank.js guard.js admission.js controller.js receipt.js session.js ledger.js shell.js tools.js routes.js selector.js policy.js
+node --check index.js client.js bank.js guard.js admission.js controller.js receipt.js session.js ledger.js shell.js tools.js routes.js store.js selector.js policy.js
 node --test test/*.mjs
 ```
 
@@ -304,6 +313,11 @@ node --test test/*.mjs
 
 改 `client.js` 后需要重启宿主才会重新载入：`./client` 导出路径就是浏览器模块身份，
 若要不重启热替换，把新版本另存为 `client.v2.js` 并更新 package.json 的导出路径。
+
+`__ModuleLoader__.load({ id })` 的 `id` **必须等于 package.json 的 `name`**。加载器按包名
+登记 factory；id 不一致时它会认为该 row 没注册成功，改用单资源 URL 再执行一次 bundle，
+第二次就在 `duplicate factory registration` 处让整个 web boot 失败（`test/client.test.mjs`
+里有断言防止回归）。
 
 ## 许可
 
